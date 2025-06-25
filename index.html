@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Roblox Bug Hunter Panel</title>
+<style>
+  body {
+    margin:0; padding:20px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #2e0055, #6200a8);
+    color: #eee;
+    user-select: none;
+  }
+  h1 {
+    margin:0 0 20px;
+    font-weight: 900;
+    color: #d98aff;
+  }
+  .container {
+    display:flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .box {
+    background: #3b0064;
+    border-radius: 12px;
+    padding: 15px;
+    flex: 1 1 300px;
+    max-height: 70vh;
+    overflow-y: auto;
+    box-shadow: 0 0 20px #9e63f3aa;
+  }
+  textarea, input, button {
+    font-family: monospace;
+    font-size: 14px;
+    border-radius: 6px;
+    border: none;
+    padding: 10px;
+    margin-top: 8px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  textarea {
+    resize: vertical;
+    height: 150px;
+    background: #280046;
+    color: #fff;
+    box-shadow: inset 0 0 10px #7b3ff9aa;
+  }
+  button {
+    cursor: pointer;
+    background: #7b3ff9;
+    color: white;
+    font-weight: 700;
+    transition: background 0.3s ease;
+  }
+  button:hover {
+    background: #a456ff;
+  }
+  label {
+    font-weight: 700;
+  }
+  .small-text {
+    font-size: 12px;
+    color: #cdb9ffcc;
+    margin-top: 6px;
+  }
+  .report-area {
+    height: 150px;
+  }
+  #dom-inspect {
+    background: #280046;
+    color: #fff;
+    font-family: monospace;
+    padding: 10px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>Roblox Bug Hunter Panel</h1>
+
+<div class="container">
+
+  <div class="box">
+    <label>HTML da Página Atual</label>
+    <textarea id="page-html" readonly></textarea>
+  </div>
+
+  <div class="box">
+    <label>Scripts Carregados</label>
+    <textarea id="scripts-list" readonly></textarea>
+  </div>
+
+  <div class="box">
+    <label>Funções Suspeitas Detectadas</label>
+    <textarea id="suspect-functions" readonly></textarea>
+  </div>
+
+  <div class="box" style="flex-basis: 100%;">
+    <label>Inspecionar e Modificar Elemento (cole seletor CSS)</label>
+    <input id="css-selector" placeholder="Ex: #header, .btn-play, div.game-title" />
+    <button id="inspect-btn">Inspecionar e Modificar</button>
+    <pre id="dom-inspect"></pre>
+  </div>
+
+  <div class="box" style="flex-basis: 100%;">
+    <label>Relatório (JSON)</label>
+    <textarea id="report-json" class="report-area" readonly></textarea>
+    <button id="copy-report">Copiar Relatório</button>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  const pageHtmlEl = document.getElementById('page-html');
+  const scriptsListEl = document.getElementById('scripts-list');
+  const suspectFuncsEl = document.getElementById('suspect-functions');
+  const reportJsonEl = document.getElementById('report-json');
+  const inspectBtn = document.getElementById('inspect-btn');
+  const cssSelectorInput = document.getElementById('css-selector');
+  const domInspectPre = document.getElementById('dom-inspect');
+
+  // 1. Pegar HTML da página atual (body interno, por simplicidade)
+  pageHtmlEl.value = document.documentElement.outerHTML.slice(0, 10000) + (document.documentElement.outerHTML.length > 10000 ? '\n\n... (truncated)' : '');
+
+  // 2. Listar scripts carregados e inline
+  let scripts = Array.from(document.scripts).map(s => s.src || '(inline script)');
+  scriptsListEl.value = scripts.join('\n');
+
+  // 3. Detectar funções suspeitas (eval, document.write, setTimeout com string, etc)
+  let suspectPatterns = [
+    'eval(',
+    'document.write',
+    'setTimeout(',
+    'setInterval(',
+    'Function(',
+    'innerHTML'
+  ];
+  let suspectsFound = [];
+
+  // Percorre todos scripts inline para procurar padrões suspeitos
+  Array.from(document.scripts).forEach(s => {
+    if (!s.src) {
+      let code = s.textContent;
+      suspectPatterns.forEach(pat => {
+        if (code.includes(pat)) suspectsFound.push(`Padrão "${pat}" encontrado em script inline.`);
+      });
+    }
+  });
+  // Também busca no HTML da página (menos eficiente)
+  suspectPatterns.forEach(pat => {
+    if (document.documentElement.outerHTML.includes(pat)) suspectsFound.push(`Padrão "${pat}" encontrado no HTML.`);
+  });
+  suspectFuncsEl.value = [...new Set(suspectsFound)].join('\n') || 'Nenhuma função suspeita encontrada.';
+
+  // 4. Função para inspecionar e modificar elemento
+  inspectBtn.onclick = () => {
+    const selector = cssSelectorInput.value.trim();
+    if (!selector) {
+      alert('Digite um seletor CSS válido!');
+      return;
+    }
+    const el = document.querySelector(selector);
+    if (!el) {
+      domInspectPre.textContent = 'Nenhum elemento encontrado com esse seletor.';
+      return;
+    }
+    // Mostra propriedades do elemento
+    let props = {
+      tagName: el.tagName,
+      id: el.id,
+      classes: el.className,
+      innerText: el.innerText,
+      innerHTML: el.innerHTML
+    };
+    let propsStr = JSON.stringify(props, null, 2);
+    domInspectPre.textContent = propsStr;
+
+    // Permite edição simples do texto (prompt)
+    let newText = prompt('Editar innerText do elemento:', el.innerText);
+    if (newText !== null) {
+      el.innerText = newText;
+      alert('Texto modificado ao vivo!');
+    }
+  };
+
+  // 5. Montar relatório JSON
+  function buildReport() {
+    return {
+      url: window.location.href,
+      timestamp: new Date().toISOString(),
+      html_snippet: pageHtmlEl.value.slice(0, 1000),
+      scripts: scripts,
+      suspect_functions: suspectFuncsEl.value.split('\n').filter(s => s.trim()),
+      user_agent: navigator.userAgent
+    };
+  }
+
+  // 6. Mostrar relatório JSON na área
+  function updateReport() {
+    let report = buildReport();
+    reportJsonEl.value = JSON.stringify(report, null, 2);
+  }
+
+  updateReport();
+
+  // 7. Botão copiar relatório
+  document.getElementById('copy-report').onclick = () => {
+    reportJsonEl.select();
+    document.execCommand('copy');
+    alert('Relatório copiado para a área de transferência!');
+  };
+
+})();
+</script>
+
+</body>
+</html>
