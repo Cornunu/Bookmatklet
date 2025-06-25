@@ -1,225 +1,255 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Roblox Bug Hunter Panel</title>
-<style>
-  body {
-    margin:0; padding:20px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #2e0055, #6200a8);
-    color: #eee;
-    user-select: none;
+javascript:(function(){
+  if(window.mobileInspectorActive){
+    return; // evita múltiplas instâncias
   }
-  h1 {
-    margin:0 0 20px;
-    font-weight: 900;
-    color: #d98aff;
+  window.mobileInspectorActive=true;
+
+  // Cria estilos
+  const style = document.createElement('style');
+  style.textContent=`
+    #mi-btn-inspect {
+      position: fixed;
+      bottom: 15px;
+      right: 15px;
+      width: 50px;
+      height: 50px;
+      background: #222;
+      color: #fff;
+      border-radius: 50%;
+      font-size: 28px;
+      line-height: 50px;
+      text-align: center;
+      cursor: pointer;
+      z-index: 999999;
+      box-shadow: 0 0 8px #6a00ff;
+      user-select: none;
+    }
+    #mi-panel {
+      position: fixed;
+      top: 0; right: 0;
+      width: 85vw;
+      max-width: 420px;
+      height: 100vh;
+      background: #121212;
+      color: #eee;
+      font-family: monospace, monospace;
+      font-size: 14px;
+      overflow-y: auto;
+      box-shadow: -4px 0 12px rgba(106,0,255,0.9);
+      z-index: 999998;
+      display: flex;
+      flex-direction: column;
+    }
+    #mi-panel header {
+      background: #6a00ff;
+      padding: 10px;
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #mi-panel header button {
+      background: #330066;
+      border: none;
+      color: white;
+      font-size: 18px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #mi-tree {
+      padding: 10px;
+      flex: 1;
+      overflow-y: auto;
+      background: #1e1e1e;
+    }
+    #mi-tree ul {
+      list-style: none;
+      padding-left: 15px;
+    }
+    #mi-tree li {
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 3px;
+      user-select: none;
+    }
+    #mi-tree li:hover {
+      background: #4200ccaa;
+    }
+    #mi-tree li.selected {
+      background: #6a00ff;
+      color: #fff;
+      font-weight: bold;
+    }
+    #mi-info {
+      background: #2a2a2a;
+      padding: 10px;
+      font-size: 13px;
+      overflow-wrap: break-word;
+      border-top: 1px solid #6a00ff;
+    }
+    #mi-info label {
+      font-weight: bold;
+    }
+    #mi-info input, #mi-info textarea {
+      width: 100%;
+      margin: 5px 0 12px 0;
+      background: #121212;
+      color: #eee;
+      border: 1px solid #6a00ff;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 13px;
+      padding: 5px;
+      resize: vertical;
+    }
+  `;
+  document.head.appendChild(style);
+
+  // Botão inspecionar
+  const btn = document.createElement('div');
+  btn.id = 'mi-btn-inspect';
+  btn.textContent = '🔍';
+  document.body.appendChild(btn);
+
+  // Painel lateral
+  const panel = document.createElement('div');
+  panel.id = 'mi-panel';
+  panel.style.display = 'none';
+
+  panel.innerHTML = `
+    <header>
+      <div>Mobile Inspector</div>
+      <button id="mi-close">×</button>
+    </header>
+    <div id="mi-tree"></div>
+    <div id="mi-info">
+      <label>Tag:</label> <span id="mi-tag"></span><br>
+      <label>ID:</label> <input type="text" id="mi-id" placeholder="id"><br>
+      <label>Classes (separadas por espaço):</label> <input type="text" id="mi-class" placeholder="class1 class2"><br>
+      <label>Atributos (JSON, chave:valor):</label> <textarea id="mi-attrs" rows="3" placeholder='{"attr":"value"}'></textarea><br>
+      <label>Texto:</label> <textarea id="mi-text" rows="3" placeholder="Texto do elemento"></textarea><br>
+      <button id="mi-update">Atualizar elemento</button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  // Fecha painel
+  panel.querySelector('#mi-close').onclick = () => {
+    panel.style.display = 'none';
+    btn.style.display = 'block';
+    clearSelectionHighlight();
+  };
+
+  // Função pra limpar realce de seleção
+  function clearSelectionHighlight(){
+    if(window.miSelectedElem){
+      window.miSelectedElem.style.outline = '';
+      window.miSelectedElem = null;
+    }
   }
-  .container {
-    display:flex;
-    gap: 20px;
-    flex-wrap: wrap;
+
+  // Função para construir a árvore DOM simples
+  function buildTree(parent, container){
+    const ul = document.createElement('ul');
+    for(let node of parent.children){
+      const li = document.createElement('li');
+      li.textContent = node.tagName.toLowerCase();
+      if(node.id) li.textContent += `#${node.id}`;
+      if(node.classList.length) li.textContent += `.${[...node.classList].join('.')}`;
+      li.onclick = (e) => {
+        e.stopPropagation();
+        selectElement(node, li);
+      };
+      ul.appendChild(li);
+
+      // Recursivo: só 2 níveis para não ficar gigante (mobile)
+      if(node.children.length && container.level < 2){
+        li.style.fontWeight = 'bold';
+        buildTreeRecursive(node, li, container.level+1);
+      }
+    }
+    container.appendChild(ul);
   }
-  .box {
-    background: #3b0064;
-    border-radius: 12px;
-    padding: 15px;
-    flex: 1 1 300px;
-    max-height: 70vh;
-    overflow-y: auto;
-    box-shadow: 0 0 20px #9e63f3aa;
+
+  function buildTreeRecursive(node, li, level){
+    const ul = document.createElement('ul');
+    for(let child of node.children){
+      const cli = document.createElement('li');
+      cli.textContent = child.tagName.toLowerCase();
+      if(child.id) cli.textContent += `#${child.id}`;
+      if(child.classList.length) cli.textContent += `.${[...child.classList].join('.')}`;
+      cli.onclick = (e) => {
+        e.stopPropagation();
+        selectElement(child, cli);
+      };
+      ul.appendChild(cli);
+      if(child.children.length && level < 2){
+        cli.style.fontWeight = 'bold';
+        buildTreeRecursive(child, cli, level+1);
+      }
+    }
+    li.appendChild(ul);
   }
-  textarea, input, button {
-    font-family: monospace;
-    font-size: 14px;
-    border-radius: 6px;
-    border: none;
-    padding: 10px;
-    margin-top: 8px;
-    width: 100%;
-    box-sizing: border-box;
+
+  // Seleciona elemento
+  function selectElement(elem, liNode){
+    clearSelectionHighlight();
+    window.miSelectedElem = elem;
+    elem.style.outline = '2px solid #6a00ff';
+    // Remove seleção anterior
+    panel.querySelectorAll('#mi-tree li.selected').forEach(el=>el.classList.remove('selected'));
+    liNode.classList.add('selected');
+
+    // Atualiza info
+    panel.querySelector('#mi-tag').textContent = elem.tagName.toLowerCase();
+    panel.querySelector('#mi-id').value = elem.id || '';
+    panel.querySelector('#mi-class').value = elem.className || '';
+    // Atributos extras (além de id e class)
+    const attrObj = {};
+    for(let at of elem.attributes){
+      if(at.name!=='id' && at.name!=='class'){
+        attrObj[at.name] = at.value;
+      }
+    }
+    panel.querySelector('#mi-attrs').value = JSON.stringify(attrObj, null, 2);
+    panel.querySelector('#mi-text').value = elem.textContent.trim();
   }
-  textarea {
-    resize: vertical;
-    height: 150px;
-    background: #280046;
-    color: #fff;
-    box-shadow: inset 0 0 10px #7b3ff9aa;
-  }
-  button {
-    cursor: pointer;
-    background: #7b3ff9;
-    color: white;
-    font-weight: 700;
-    transition: background 0.3s ease;
-  }
-  button:hover {
-    background: #a456ff;
-  }
-  label {
-    font-weight: 700;
-  }
-  .small-text {
-    font-size: 12px;
-    color: #cdb9ffcc;
-    margin-top: 6px;
-  }
-  .report-area {
-    height: 150px;
-  }
-  #dom-inspect {
-    background: #280046;
-    color: #fff;
-    font-family: monospace;
-    padding: 10px;
-    border-radius: 8px;
-    white-space: pre-wrap;
-    max-height: 300px;
-    overflow-y: auto;
-  }
-</style>
-</head>
-<body>
 
-<h1>Roblox Bug Hunter Panel</h1>
-
-<div class="container">
-
-  <div class="box">
-    <label>HTML da Página Atual</label>
-    <textarea id="page-html" readonly></textarea>
-  </div>
-
-  <div class="box">
-    <label>Scripts Carregados</label>
-    <textarea id="scripts-list" readonly></textarea>
-  </div>
-
-  <div class="box">
-    <label>Funções Suspeitas Detectadas</label>
-    <textarea id="suspect-functions" readonly></textarea>
-  </div>
-
-  <div class="box" style="flex-basis: 100%;">
-    <label>Inspecionar e Modificar Elemento (cole seletor CSS)</label>
-    <input id="css-selector" placeholder="Ex: #header, .btn-play, div.game-title" />
-    <button id="inspect-btn">Inspecionar e Modificar</button>
-    <pre id="dom-inspect"></pre>
-  </div>
-
-  <div class="box" style="flex-basis: 100%;">
-    <label>Relatório (JSON)</label>
-    <textarea id="report-json" class="report-area" readonly></textarea>
-    <button id="copy-report">Copiar Relatório</button>
-  </div>
-
-</div>
-
-<script>
-(() => {
-  const pageHtmlEl = document.getElementById('page-html');
-  const scriptsListEl = document.getElementById('scripts-list');
-  const suspectFuncsEl = document.getElementById('suspect-functions');
-  const reportJsonEl = document.getElementById('report-json');
-  const inspectBtn = document.getElementById('inspect-btn');
-  const cssSelectorInput = document.getElementById('css-selector');
-  const domInspectPre = document.getElementById('dom-inspect');
-
-  // 1. Pegar HTML da página atual (body interno, por simplicidade)
-  pageHtmlEl.value = document.documentElement.outerHTML.slice(0, 10000) + (document.documentElement.outerHTML.length > 10000 ? '\n\n... (truncated)' : '');
-
-  // 2. Listar scripts carregados e inline
-  let scripts = Array.from(document.scripts).map(s => s.src || '(inline script)');
-  scriptsListEl.value = scripts.join('\n');
-
-  // 3. Detectar funções suspeitas (eval, document.write, setTimeout com string, etc)
-  let suspectPatterns = [
-    'eval(',
-    'document.write',
-    'setTimeout(',
-    'setInterval(',
-    'Function(',
-    'innerHTML'
-  ];
-  let suspectsFound = [];
-
-  // Percorre todos scripts inline para procurar padrões suspeitos
-  Array.from(document.scripts).forEach(s => {
-    if (!s.src) {
-      let code = s.textContent;
-      suspectPatterns.forEach(pat => {
-        if (code.includes(pat)) suspectsFound.push(`Padrão "${pat}" encontrado em script inline.`);
+  // Atualiza o elemento selecionado com os dados do painel
+  panel.querySelector('#mi-update').onclick = () => {
+    if(!window.miSelectedElem) return alert('Selecione um elemento primeiro');
+    const elem = window.miSelectedElem;
+    elem.id = panel.querySelector('#mi-id').value.trim();
+    elem.className = panel.querySelector('#mi-class').value.trim();
+    // Atualiza atributos
+    try {
+      const newAttrs = JSON.parse(panel.querySelector('#mi-attrs').value.trim());
+      // Remove todos atributos exceto id e class
+      [...elem.attributes].forEach(a=>{
+        if(a.name !== 'id' && a.name !== 'class'){
+          elem.removeAttribute(a.name);
+        }
       });
-    }
-  });
-  // Também busca no HTML da página (menos eficiente)
-  suspectPatterns.forEach(pat => {
-    if (document.documentElement.outerHTML.includes(pat)) suspectsFound.push(`Padrão "${pat}" encontrado no HTML.`);
-  });
-  suspectFuncsEl.value = [...new Set(suspectsFound)].join('\n') || 'Nenhuma função suspeita encontrada.';
-
-  // 4. Função para inspecionar e modificar elemento
-  inspectBtn.onclick = () => {
-    const selector = cssSelectorInput.value.trim();
-    if (!selector) {
-      alert('Digite um seletor CSS válido!');
+      for(let k in newAttrs){
+        elem.setAttribute(k, newAttrs[k]);
+      }
+    } catch(e){
+      alert('JSON de atributos inválido');
       return;
     }
-    const el = document.querySelector(selector);
-    if (!el) {
-      domInspectPre.textContent = 'Nenhum elemento encontrado com esse seletor.';
-      return;
-    }
-    // Mostra propriedades do elemento
-    let props = {
-      tagName: el.tagName,
-      id: el.id,
-      classes: el.className,
-      innerText: el.innerText,
-      innerHTML: el.innerHTML
-    };
-    let propsStr = JSON.stringify(props, null, 2);
-    domInspectPre.textContent = propsStr;
-
-    // Permite edição simples do texto (prompt)
-    let newText = prompt('Editar innerText do elemento:', el.innerText);
-    if (newText !== null) {
-      el.innerText = newText;
-      alert('Texto modificado ao vivo!');
-    }
+    // Atualiza texto
+    elem.textContent = panel.querySelector('#mi-text').value;
+    alert('Elemento atualizado!');
   };
 
-  // 5. Montar relatório JSON
-  function buildReport() {
-    return {
-      url: window.location.href,
-      timestamp: new Date().toISOString(),
-      html_snippet: pageHtmlEl.value.slice(0, 1000),
-      scripts: scripts,
-      suspect_functions: suspectFuncsEl.value.split('\n').filter(s => s.trim()),
-      user_agent: navigator.userAgent
-    };
-  }
-
-  // 6. Mostrar relatório JSON na área
-  function updateReport() {
-    let report = buildReport();
-    reportJsonEl.value = JSON.stringify(report, null, 2);
-  }
-
-  updateReport();
-
-  // 7. Botão copiar relatório
-  document.getElementById('copy-report').onclick = () => {
-    reportJsonEl.select();
-    document.execCommand('copy');
-    alert('Relatório copiado para a área de transferência!');
+  // Ao clicar no botão abre painel e gera árvore
+  btn.onclick = () => {
+    btn.style.display = 'none';
+    panel.style.display = 'flex';
+    const treeCont = panel.querySelector('#mi-tree');
+    treeCont.innerHTML = '';
+    buildTree(document.body, {appendChild: (el)=>treeCont.appendChild(el), level:0});
+    clearSelectionHighlight();
   };
-
 })();
-</script>
-
-</body>
-</html>
